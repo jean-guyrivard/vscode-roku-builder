@@ -257,18 +257,47 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
 
           if (brandConfigs[requestedBrand]) {
             let finalConfig: Dictionary<any> = this.processBrand(brandConfigs[requestedBrand], brandConfigs);
+            let replacements = finalConfig["replacements"];
 
-            if (!fs.existsSync(this.targetDir)) {
-              fs.mkdirSync(this.targetDir);
+            if (finalConfig["replacements_files"]) {
+              finalConfig["replacements_files"].forEach((replacementFile: string) => {
+                const filepath = path.join(this.taskScope.uri.fsPath, replacementFile);
+                if (fs.existsSync(filepath)) {
+                  let replacementAdd = JSON.parse(fs.readFileSync(filepath).toString());
+
+                  Object.entries(replacementAdd).forEach(([key, value]) => {
+                    replacements[key] = value
+                  })
+                }
+              })
             }
 
-            finalConfig["!files"].forEach((sourceFile: rokuBuilderFileInfo) => {
-              const content = fs.readFileSync(sourceFile.absoluteFilePath);
-              const targetFilePath = path.join(this.targetDir, sourceFile.relativeFilePath);
-              const targetFileInfo = path.parse(targetFilePath)
+            if (fs.existsSync(this.targetDir)) {
+              fs.rmSync(this.targetDir, {recursive: true})
+            }
+            fs.mkdirSync(this.targetDir);
 
-              fs.mkdirSync(targetFileInfo.dir, {recursive: true});
-              fs.writeFileSync(targetFilePath, content, {flag: "w"});
+            finalConfig["!files"].forEach((sourceFile: rokuBuilderFileInfo) => {
+              const fileInfo = path.parse(sourceFile.absoluteFilePath);
+              const isTextFile = fileInfo.ext.match(/\.(brs|json|xml|txt)/i)
+              const isBannedFile = fileInfo.ext.match(/\.(zip)/i)
+
+              if (isTextFile) {
+                let content = fs.readFileSync(sourceFile.absoluteFilePath, {encoding: "utf-8"});
+                const targetFilePath = path.join(this.targetDir, sourceFile.relativeFilePath);
+                const targetFileInfo = path.parse(targetFilePath)
+
+                content = this.replaceBulk(content, Object.keys(replacements), Object.values(replacements))
+
+                fs.mkdirSync(targetFileInfo.dir, {recursive: true});
+                fs.writeFileSync(targetFilePath, content, {flag: "w"});
+              } else if (!isBannedFile) {
+                const targetFilePath = path.join(this.targetDir, sourceFile.relativeFilePath);
+                const targetFileInfo = path.parse(targetFilePath)
+
+                fs.mkdirSync(targetFileInfo.dir, {recursive: true});
+                fs.copyFileSync(sourceFile.absoluteFilePath, targetFilePath)
+              }
             })
             let manifest: string = ""
 
@@ -371,8 +400,21 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
       currentConfig["targets"] = currentBrand["targets"]
     }
 
-    if (currentBrand["replacement_files"]) {
-      currentConfig["replacement_files"] = currentBrand["replacement_files"]
+    if (currentBrand["replacements"]) {
+      if (!currentConfig["replacements"]) {
+        currentConfig["replacements"] = {}
+      }
+
+      Object.entries(currentBrand["replacements"]).forEach(([key, value]) => {
+        currentConfig["replacements"][key] = value
+      })
+    }
+
+    if (currentBrand["replacements_files"]) {
+      if (!currentConfig["replacements_files"]) {
+        currentConfig["replacements_files"] = []
+      }
+      currentConfig["replacements_files"] = currentConfig["replacements_files"].concat(currentBrand["replacements_files"])
     }
 
     if (currentBrand["!files"]) {
@@ -416,7 +458,7 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
         config[region] = regionConfigData;
 
         const configSections = this.configData["channel_config_sections"];
-        const configMatches = glob.sync(path.join(regionPath, "configs/{" + configSections.join(",") + "}/**/*"))
+        const configMatches = glob.sync(path.join(regionPath, "configs/{" + configSections.join(",") + "}/**/*"), {nodir: true})
         configMatches.forEach((regionConfigPath) => {
           const basePath = path.relative(path.join(regionPath, "configs"), regionConfigPath)
           const basePathParts = path.dirname(basePath);
@@ -451,28 +493,26 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
     return createdConfig
   }
 
-  private createConfigSection(section: Dictionary<any>, resolution: string): Dictionary<any> {
-    let createdSection: Dictionary<any> = {};
+  private createConfigSection(section: any, resolution: string): any {
+    let createdSection: any;
 
-    Object.entries(section).forEach(([sectionKey, sectionValue]) => {
-      if (Array.isArray(sectionValue)) {
-        createdSection[sectionKey] = sectionValue
-      } else  if (typeof sectionValue === "object") {
-        if (sectionValue[resolution]) {
-          if (Array.isArray(sectionValue[resolution])) {
-            createdSection[sectionKey] = sectionValue[resolution]
-          } else if (typeof sectionValue[resolution] === "object") {
-            createdSection[sectionKey] = this.createConfigSection(sectionValue[resolution], resolution);
-          } else {
-            createdSection[sectionKey] = sectionValue[resolution]
-          }
-        } else {
-          createdSection[sectionKey] = this.createConfigSection(sectionValue, resolution);
-        }
+    if (Array.isArray(section)) {
+      createdSection = []
+      section.forEach((value: any, index: number) => {
+        createdSection[index] = this.createConfigSection(value, resolution);
+      })
+    } else if (typeof section === "object") {
+      if (section[resolution] != undefined) {
+        createdSection = this.createConfigSection(section[resolution], resolution);
       } else {
-        createdSection[sectionKey] = sectionValue
+        createdSection = {}
+        Object.entries(section).forEach(([componentKey, componentValue]) => {
+          createdSection[componentKey] = this.createConfigSection(componentValue, resolution);
+        })
       }
-    })
+    } else {
+      createdSection = section
+    }
 
     return createdSection;
   }
@@ -489,5 +529,18 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
     } else {
       return original;
     }
+  }
+
+  private replaceBulk( str: string, findArray: string[], replaceArray: string[] ){
+    var i, regex: string[] = [], map: Dictionary<any> = {}; 
+    for( i=0; i<findArray.length; i++ ){ 
+      regex.push( findArray[i].replace(/([-[\]{}()*+?.\\^$|#,])/g,'\\$1') );
+      map[findArray[i]] = replaceArray[i]; 
+    }
+    let regexStr = regex.join('|');
+    str = str.replace( new RegExp( regexStr, 'g' ), function(matched){
+      return map[matched];
+    });
+    return str;
   }
 }
