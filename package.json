@@ -1,0 +1,49 @@
+{
+  "name": "roku-builder",
+  "publisher": "redspace",
+  "displayName": "Roku Builder",
+  "description": "",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.77.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension",
+  "contributes": {
+    "taskDefinitions": [
+      {
+        "type": "rokubuilder",
+        "required": [],
+        "properties": {
+          "brand": {
+            "type": "string",
+            "description": "Brand to build, omit to scan config"
+          },
+          "targetDir": {
+            "type": "string",
+            "description": "Target folder for built files"
+          }
+        }
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -b",
+    "watch": "tsc -b -w"
+  },
+  "devDependencies": {
+    "@types/glob": "^8.1.0",
+    "@types/mocha": "^10.0.1",
+    "@types/node": "16.x",
+    "@types/vscode": "^1.77.0",
+    "@vscode/test-electron": "^2.3.0",
+    "eslint": "^8.36.0",
+    "glob": "^8.1.0",
+    "mocha": "^10.2.0",
+    "typescript": "^4.9.5"
+  }
+}
