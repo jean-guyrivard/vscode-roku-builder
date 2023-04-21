@@ -2,7 +2,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import * as glob from 'glob';
-import { create } from 'domain';
+import * as JSON5 from 'json5'
+import * as sharp from 'sharp';
+import * as GIF from 'omggif';
 
 interface Dictionary<Type> {
   [key: string]: Type;
@@ -87,7 +89,7 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
       return;
     }
 
-    return new Promise<void>((resolve) => {
+    return new Promise<void>(async (resolve) => {
       this.writeEmitter.fire('Starting build...\r\n');
 
       const folder = this.taskScope;
@@ -99,7 +101,7 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
         return;
       }
 
-      this.configData = JSON.parse(fs.readFileSync(config).toString());
+      this.configData = JSON5.parse(fs.readFileSync(config).toString());
 
       if (!this.configData) {
         console.log("Roku Builder config is invalid", folder);
@@ -110,7 +112,7 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
 
       if (this.requestedBrand) {
         console.log(`Brand ${this.requestedBrand} requested`);
-        this.buildBrand(this.requestedBrand, this.configData);
+        await this.buildBrand(this.requestedBrand, this.configData);
       } else {
         console.log("Brand missing, scanning config");
         const availableBrands: Array<string> = this.loadBrands(this.configData);
@@ -178,7 +180,7 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
     return availableBrands;
   }
 
-  private buildBrand(requestedBrand: string, configData: any) {
+  private async buildBrand(requestedBrand: string, configData: any) {
     let brandConfigs: Dictionary<any> = {};
 
     if (configData.brands) {
@@ -187,168 +189,90 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
       } else {
         let targets = configData.targets;
         Object.entries(configData.brands).forEach(([key, value]) => {
-        if (!key.startsWith("!")) {
-          const typedValue: Dictionary<any> = <Dictionary<any>>value;
+          if (!key.startsWith("!")) {
+            const typedValue: Dictionary<any> = <Dictionary<any>>value;
 
-          if (typedValue.targets) {
-            targets = configData.targets.concat(typedValue.targets)
-          }
-          brandConfigs[key] = value;
-          brandConfigs[key]["!files"] = [];
-
-          let matches = glob.sync(path.join(this.taskScope.uri.fsPath, "brands", key, "{" + targets.join(",") + "}{/**/*,*}"), {nodir: true})
-          matches.forEach((value) => {
-            let fileInfo: rokuBuilderFileInfo = {
-              absoluteFilePath: value,
-              relativeFilePath: path.relative(path.join(this.taskScope.uri.fsPath, "brands", key), value)
-            };
-
-            brandConfigs[key]["!files"].push(fileInfo);
-          })
-
-          brandConfigs[key]["!config"] = this.parseConfig(key);
-        }
-      });
-
-      if (configData.brands["!repeat_brands"]) {
-        try {
-          const topBrands = configData.brands["!repeat_brands"]["for"];
-
-          topBrands.forEach((currentTopBrand: string) => {
-            let variables: Dictionary<string> = {};
-
-            variables["key"] = currentTopBrand;
-            if (configData.brands["!repeat_brands"]["replace"]) {
-              let replaceVariables: Dictionary<any> = configData.brands["!repeat_brands"]["replace"];
-
-              Object.entries(replaceVariables).forEach(([key, value]) => {
-                variables[key] = value[0]
-              })
+            if (typedValue.targets) {
+              targets = configData.targets.concat(typedValue.targets)
             }
+            brandConfigs[key] = value;
+            brandConfigs[key]["!files"] = [];
 
-            const subBrands = configData.brands["!repeat_brands"]["brands"];
+            let matches = glob.sync(path.join(this.taskScope.uri.fsPath, "brands", key, "{" + targets.join(",") + "}{/**/*,*}"), { nodir: true })
+            matches.forEach((value) => {
+              let fileInfo: rokuBuilderFileInfo = {
+                absoluteFilePath: value,
+                relativeFilePath: path.relative(path.join(this.taskScope.uri.fsPath, "brands", key), value)
+              };
 
-            Object.entries(subBrands).forEach(([key, value]) => {
-              let brand = this.replaceVariables(key, variables);
-              let targets = configData.targets;
-              const typedValue: Dictionary<any> = <Dictionary<any>>value;
+              brandConfigs[key]["!files"].push(fileInfo);
+            })
 
-              if (typedValue.targets) {
-                targets = configData.targets.concat(typedValue.targets)
+            brandConfigs[key]["!config"] = this.parseConfig(key);
+          }
+        });
+
+        if (configData.brands["!repeat_brands"]) {
+          try {
+            const topBrands = configData.brands["!repeat_brands"]["for"];
+
+            topBrands.forEach((currentTopBrand: string) => {
+              let variables: Dictionary<string> = {};
+
+              variables["key"] = currentTopBrand;
+              if (configData.brands["!repeat_brands"]["replace"]) {
+                let replaceVariables: Dictionary<any> = configData.brands["!repeat_brands"]["replace"];
+
+                Object.entries(replaceVariables).forEach(([key, value]) => {
+                  variables[key] = value[0]
+                })
               }
 
-              brandConfigs[brand] = value
-              brandConfigs[brand]["!variables"] = variables;
-              brandConfigs[brand]["!files"] = [];
+              const subBrands = configData.brands["!repeat_brands"]["brands"];
 
-              const matches = glob.sync(path.join(this.taskScope.uri.fsPath, "brands", brand, "{" + targets.join(",") + "}{/**/*,*}"), {nodir: true})
-              matches.forEach((value) => {
-                let fileInfo: rokuBuilderFileInfo = {
-                  absoluteFilePath: value,
-                  relativeFilePath: path.relative(path.join(this.taskScope.uri.fsPath, "brands", brand), value)
-                };
+              Object.entries(subBrands).forEach(([key, value]) => {
+                let brand = this.replaceVariables(key, variables);
+                let targets = configData.targets;
+                const typedValue: Dictionary<any> = <Dictionary<any>>value;
 
-                brandConfigs[brand]["!files"].push(fileInfo);
-              })
-
-              brandConfigs[brand]["!config"] = this.parseConfig(brand);
-            })
-          })
-
-          if (brandConfigs[requestedBrand]) {
-            let finalConfig: Dictionary<any> = this.processBrand(brandConfigs[requestedBrand], brandConfigs);
-            let replacements = finalConfig["replacements"];
-
-            if (finalConfig["replacements_files"]) {
-              finalConfig["replacements_files"].forEach((replacementFile: string) => {
-                const filepath = path.join(this.taskScope.uri.fsPath, replacementFile);
-                if (fs.existsSync(filepath)) {
-                  let replacementAdd = JSON.parse(fs.readFileSync(filepath).toString());
-
-                  Object.entries(replacementAdd).forEach(([key, value]) => {
-                    replacements[key] = value
-                  })
+                if (typedValue.targets) {
+                  targets = configData.targets.concat(typedValue.targets)
                 }
-              })
-            }
 
-            if (fs.existsSync(this.targetDir)) {
-              fs.rmSync(this.targetDir, {recursive: true})
-            }
-            fs.mkdirSync(this.targetDir);
+                brandConfigs[brand] = value
+                brandConfigs[brand]["!variables"] = variables;
+                brandConfigs[brand]["!files"] = [];
 
-            finalConfig["!files"].forEach((sourceFile: rokuBuilderFileInfo) => {
-              const fileInfo = path.parse(sourceFile.absoluteFilePath);
-              const isTextFile = fileInfo.ext.match(/\.(brs|json|xml|txt)/i)
-              const isBannedFile = fileInfo.ext.match(/\.(zip)/i)
+                const matches = glob.sync(path.join(this.taskScope.uri.fsPath, "brands", brand, "{" + targets.join(",") + "}{/**/*,*}"), { nodir: true })
+                matches.forEach((value) => {
+                  let fileInfo: rokuBuilderFileInfo = {
+                    absoluteFilePath: value,
+                    relativeFilePath: path.relative(path.join(this.taskScope.uri.fsPath, "brands", brand), value)
+                  };
 
-              if (isTextFile) {
-                let content = fs.readFileSync(sourceFile.absoluteFilePath, {encoding: "utf-8"});
-                const targetFilePath = path.join(this.targetDir, sourceFile.relativeFilePath);
-                const targetFileInfo = path.parse(targetFilePath)
-
-                content = this.replaceBulk(content, Object.keys(replacements), Object.values(replacements))
-
-                fs.mkdirSync(targetFileInfo.dir, {recursive: true});
-                fs.writeFileSync(targetFilePath, content, {flag: "w"});
-              } else if (!isBannedFile) {
-                const targetFilePath = path.join(this.targetDir, sourceFile.relativeFilePath);
-                const targetFileInfo = path.parse(targetFilePath)
-
-                fs.mkdirSync(targetFileInfo.dir, {recursive: true});
-                fs.copyFileSync(sourceFile.absoluteFilePath, targetFilePath)
-              }
-            })
-            let manifest: string = ""
-
-            Object.entries(finalConfig["manifest"]).forEach(([key, value]) => {
-              let typeValue: any = value;
-
-              if (typeof typeValue === "object") {
-                let valueConcat: string[] = [];
-
-                Object.entries(typeValue).forEach(([key, value]) => {
-                  valueConcat.push(key + "=" + value)
+                  brandConfigs[brand]["!files"].push(fileInfo);
                 })
-                manifest += key + "=" + valueConcat.join(";") + "\r\n";
-              } else {
-                manifest += key + "=" + typeValue.toString() + "\r\n"
-              }
-            })
-            fs.writeFileSync(path.join(this.targetDir, "manifest"), manifest)
 
-            if (this.configData["resolutions"]) {
-              this.configData["resolutions"].forEach((resolution: string) => {
-                Object.entries(finalConfig["!config"]).forEach(([region, regionValue]) => {
-                  const createdConfig = this.createConfig(<Dictionary<any>>regionValue, resolution)
-                  const filePath = path.join(this.targetDir, "region", region)
-
-                  fs.mkdirSync(filePath, {recursive: true});
-                  fs.writeFileSync(path.join(filePath, "production_" + resolution + ".json"), JSON.stringify(createdConfig));
-                  fs.writeFileSync(path.join(filePath, "staging_" + resolution + ".json"), JSON.stringify(createdConfig));
-                })
+                brandConfigs[brand]["!config"] = this.parseConfig(brand);
               })
+            })
+
+            if (brandConfigs[requestedBrand]) {
+              let finalConfig: Dictionary<any> = this.processBrand(brandConfigs[requestedBrand], brandConfigs);
+
+              await this.finalizeBuild(finalConfig);
+
+
+              console.log(finalConfig);
             } else {
-              Object.entries(finalConfig["!config"]).forEach(([region, regionValue]) => {
-                const createdConfig = this.createConfig(<Dictionary<any>>regionValue, "fhd")
-                const filePath = path.join(this.targetDir, "region", region)
-
-                fs.mkdirSync(filePath, {recursive: true});
-                fs.writeFileSync(path.join(filePath, "production.json"), JSON.stringify(createdConfig));
-                fs.writeFileSync(path.join(filePath, "staging.json"), JSON.stringify(createdConfig));
-              })
+              console.log(`Requested brand ${requestedBrand} not found`);
             }
-
-            console.log(finalConfig);
-          } else {
-            console.log(`Requested brand ${requestedBrand} not found`);
+          } catch (e) {
+            console.log(e)
           }
-        } catch(e) {
-          console.log(e)
+        } else {
+          console.log("Repeat not found")
         }
-      } else {
-        console.log("Repeat not found")
-      }
       }
     }
   }
@@ -366,7 +290,11 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
         }
         const parentConfig: Dictionary<any> = this.processBrand(brandConfigs[resolvedBrand], brandConfigs);
         Object.entries(parentConfig).forEach(([key, value]) => {
-          currentConfig[key] = value
+          if (currentConfig[key] != undefined) {
+            currentConfig[key] = Object.assign(currentConfig[key], value)
+          } else {
+            currentConfig[key] = value
+          }
         })
       })
     }
@@ -443,6 +371,142 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
     return currentConfig;
   }
 
+  private async finalizeBuild(finalConfig: Dictionary<any>) {
+    let replacements = finalConfig["replacements"];
+
+    if (finalConfig["replacements_files"]) {
+      finalConfig["replacements_files"].forEach((replacementFile: string) => {
+        const filepath = path.join(this.taskScope.uri.fsPath, replacementFile);
+        if (fs.existsSync(filepath)) {
+          let replacementAdd = JSON5.parse(fs.readFileSync(filepath).toString());
+
+          Object.entries(replacementAdd).forEach(([key, value]) => {
+            replacements[key] = value
+          })
+        }
+      })
+    }
+
+    if (fs.existsSync(this.targetDir)) {
+      fs.rmSync(this.targetDir, {recursive: true})
+    }
+    fs.mkdirSync(this.targetDir);
+
+    for (const sourceFile of finalConfig["!files"]) {
+      const fileInfo = path.parse(sourceFile.absoluteFilePath);
+      const isTextFile = fileInfo.ext.match(/\.(brs|json|xml|txt)/i)
+      const isBannedFile = fileInfo.ext.match(/\.(zip)/i)
+
+      if (isTextFile) {
+        let content = fs.readFileSync(sourceFile.absoluteFilePath, {encoding: "utf-8"});
+        const targetFilePath = path.join(this.targetDir, sourceFile.relativeFilePath);
+        const targetFileInfo = path.parse(targetFilePath)
+
+        content = this.replaceBulk(content, Object.keys(replacements), Object.values(replacements))
+
+        fs.mkdirSync(targetFileInfo.dir, {recursive: true});
+        fs.writeFileSync(targetFilePath, content, {flag: "w"});
+      } else if (!isBannedFile) {
+        const targetFilePath = path.join(this.targetDir, sourceFile.relativeFilePath);
+        const targetFileInfo = path.parse(targetFilePath)
+        const isAnimation = sourceFile.relativeFilePath.match(/^assets\/animations\/([a-z0-9\- ]+)/i)
+
+        if (isAnimation) {
+          if (!finalConfig["!animations"]) {
+            finalConfig["!animations"] = {}
+          }
+          if (!finalConfig["!animations"][isAnimation[1]]) {
+            finalConfig["!animations"][isAnimation[1]] = {
+              "subtype": "Node"
+            }
+          }
+          finalConfig["!animations"][isAnimation[1]][targetFileInfo.name.replaceAll(" ", "-")] = await this.processSprite(sourceFile, targetFileInfo)
+        } else {
+          fs.mkdirSync(targetFileInfo.dir, {recursive: true});
+          fs.copyFileSync(sourceFile.absoluteFilePath, targetFilePath)
+        }
+      }
+    }
+
+    if (finalConfig["!animations"]) {
+      const targetDir = path.join(this.targetDir, "assets", "animations")
+      fs.mkdirSync(targetDir, {recursive: true});
+      Object.entries(finalConfig["!animations"]).forEach(([key, value]) => {
+        const animFile = path.join(targetDir, key + ".json")
+        fs.writeFileSync(animFile, JSON.stringify(value))
+      })
+    }
+
+    let manifest: string = ""
+
+    Object.entries(finalConfig["manifest"]).forEach(([key, value]) => {
+      let typeValue: any = value;
+
+      if (typeof typeValue === "object") {
+        let valueConcat: string[] = [];
+
+        Object.entries(typeValue).forEach(([key, value]) => {
+          valueConcat.push(key + "=" + value)
+        })
+        manifest += key + "=" + valueConcat.join(";") + "\n";
+      } else {
+        manifest += key + "=" + typeValue.toString() + "\n"
+      }
+    })
+    manifest += "\n"
+    fs.writeFileSync(path.join(this.targetDir, "manifest"), manifest)
+
+    if (this.configData["resolutions"]) {
+      this.configData["resolutions"].forEach((resolution: string) => {
+        Object.entries(finalConfig["!config"]).forEach(([region, regionValue]) => {
+          const createdConfig = this.createConfig(<Dictionary<any>>regionValue, resolution)
+          const filePath = path.join(this.targetDir, "region", region)
+
+          fs.mkdirSync(filePath, {recursive: true});
+          Object.entries(createdConfig).forEach(([environment, environmentValue]) => {
+            fs.writeFileSync(path.join(filePath, environment + "_" + resolution + ".json"), JSON.stringify(environmentValue));
+          })
+        })
+      })
+    } else {
+      Object.entries(finalConfig["!config"]).forEach(([region, regionValue]) => {
+        const createdConfig = this.createConfig(<Dictionary<any>>regionValue, "fhd")
+        const filePath = path.join(this.targetDir, "region", region)
+
+        fs.mkdirSync(filePath, {recursive: true});
+
+        Object.entries(createdConfig).forEach(([environment, environmentValue]) => {
+          fs.writeFileSync(path.join(filePath, environment + "_fhd.json"), JSON.stringify(environmentValue));
+        })
+      })
+    }
+  }
+
+  private async processSprite(sourceFile: rokuBuilderFileInfo, targetFileInfo: path.ParsedPath): Promise<Dictionary<any> | undefined> {
+    if (targetFileInfo.ext == ".gif") {
+      const image = await new GIF.GifReader(fs.readFileSync(sourceFile.absoluteFilePath))
+      let imageInfo = {
+          "subtype": "Node",
+          "numberOfFrames": image.numFrames(),
+          "frames": [] as Array<any>
+      }
+
+      for (let frameNum=0;frameNum<image.numFrames();frameNum++) {
+        const imageData = Buffer.alloc(image.width * image.height * 4)
+        image.decodeAndBlitFrameRGBA(frameNum, imageData)
+        const newImageData = await sharp(imageData, {raw: {width: image.width, height: image.height, channels: 4}}).png().toBuffer()
+
+        imageInfo.frames.push({
+          "uri": newImageData.toString("base64")
+        })
+      }
+
+      return Promise.resolve(imageInfo)
+    } else {
+      return Promise.resolve(undefined)
+    }
+  }
+
   private parseConfig(brand: string) {
     let config: Dictionary<any> = {}
     let matches = glob.sync(path.join(this.taskScope.uri.fsPath, "brands", brand, "region/*"))
@@ -453,7 +517,7 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
       const configPath = path.join(regionPath, "config.json")
 
       if (fs.existsSync(configPath)) {
-        const regionConfigData = JSON.parse(fs.readFileSync(configPath).toString());
+        const regionConfigData = JSON5.parse(fs.readFileSync(configPath).toString());
 
         config[region] = regionConfigData;
 
@@ -473,7 +537,7 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
             config[region]["components"][basePathParts] = {}
           }
 
-          const componentConfig = JSON.parse(fs.readFileSync(regionConfigPath).toString());
+          const componentConfig = JSON5.parse(fs.readFileSync(regionConfigPath).toString());
 
           Object.entries(componentConfig).forEach(([componentKey, componentValue]) => {
             config[region]["components"][basePathParts][componentKey] = componentValue
@@ -488,26 +552,29 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
   private createConfig(config: Dictionary<any>, resolution: string): Dictionary<any> {
     let createdConfig: Dictionary<any> = {}
 
-    createdConfig = this.createConfigSection(config, resolution)
+    createdConfig["production"] = this.createConfigSection(config, resolution, "production")
+    createdConfig["staging"] = this.createConfigSection(config, resolution, "staging")
 
     return createdConfig
   }
 
-  private createConfigSection(section: any, resolution: string): any {
+  private createConfigSection(section: any, resolution: string, environment: string): any {
     let createdSection: any;
 
     if (Array.isArray(section)) {
       createdSection = []
       section.forEach((value: any, index: number) => {
-        createdSection[index] = this.createConfigSection(value, resolution);
+        createdSection[index] = this.createConfigSection(value, resolution, environment);
       })
     } else if (typeof section === "object") {
       if (section[resolution] != undefined) {
-        createdSection = this.createConfigSection(section[resolution], resolution);
+        createdSection = this.createConfigSection(section[resolution], resolution, environment);
+      } else if (section[environment] != undefined) {
+        createdSection = this.createConfigSection(section[environment], resolution, environment);
       } else {
         createdSection = {}
         Object.entries(section).forEach(([componentKey, componentValue]) => {
-          createdSection[componentKey] = this.createConfigSection(componentValue, resolution);
+          createdSection[componentKey] = this.createConfigSection(componentValue, resolution, environment);
         })
       }
     } else {
