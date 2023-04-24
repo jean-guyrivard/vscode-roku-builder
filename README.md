@@ -1,65 +1,133 @@
-# roku-builder README
+# Roku Builder README
 
-This is the README for your extension "roku-builder". After writing up a brief description, we recommend including the following sections.
+This extension allows building of projects created using a branding system of apps.
+Each config can be made to create multiple channels using on codebase.
 
-## Features
+## Example config file
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+This file should be name `.roku_builder_rebrand.json` and reside in your workspace root.
+Values containing `{}` will be replaced with variables from the config. For example, in the `!repeat_brands` loop `{brand}` will be replaced by the `replace`.`brand` value
 
-For example if there is an image subfolder under your extension project workspace:
+```json
+{
+  "targets": [
+    "folder",
+    "file.ext"
+  ],
+  "channel_config_sections": [
+    "folderForConfigFile"
+  ],
+  "resolutions": [
+    "fhd",
+    "hd"
+  ],
+  "brands": {
+    "core": {
+      "replacements": {
+        "##COPYRIGHT HEADER##": "*****  *****"
+      },
+      "manifest": {
+        "rsg_version": 1.2,
+        "title": "Core",
+        "major_version": 1,
+        "minor_version": 0,
+        "build_version": "0001",
+        "mm_icon_focus_fhd": "pkg:/assets/fhd/roku-icon.png",
+        "mm_icon_focus_hd": "pkg:/assets/hd/roku-icon.png",
+        "mm_icon_focus_sd": "pkg:/assets/sd/roku-icon.png",
+        "splash_screen_fhd": "pkg:/assets/fhd/roku-splash.jpg",
+        "splash_screen_hd": "pkg:/assets/hd/roku-splash.jpg",
+        "splash_screen_sd": "pkg:/assets/hd/roku-splash.jpg",
+        "splash_rsg_optimization": "1",
+        "splash_min_time": 3000,
+        "ui_resolutions": "fhd, hd",
+        "uri_resolution_autosub": "%RES%, sd, hd, fhd",
+        "config": "https://remoteconfig/configs/{locale}/{res}.json",
+        "bs_const": {
+          "DEBUG": false,
+          "DEBUG_HTTPS": false
+        },
+        "supports_input_launch": 1,
+        "environment": "production",
+        "bs_libs_required": "roku_ads_lib,googleima3",
+        "sg_component_libs_required": "roku_analytics"
+      },
+      "targets": [
+        "folder",
+        "file.ext"
+      ]
+    },
+    "!repeat_brands": {
+      "for": ["brand"],
+      "replace": {
+        "title": ["Brand App"],
+        "brand": ["brand"]
+      },
+      "brands": {
+        "{key}": {
+          "parents": ["core"],
+          "manifest": {
+            "title": "{title}",
+            "brand": "{brand}"
+          },
+          "replacements_files": [
+            "fileToReplaceValues.json"
+          ]
+        },
+        "{key}-staging": {
+          "parents": ["{key}"],
+          "signing_key": "{key}-staging",
+          "targets": [
+            "folder",
+            "file.ext"
+          ],
+          "manifest": {
+            "title": "{title}-Staging",
+            "brand": "{brand}",
+            "environment": "staging",
+            "config": "https://remoteconfig/configs/{locale}/{res}.json",
+            "bs_const": {
+              "DEBUG": false,
+              "DEBUG_HTTPS": false
+            }
+          },
+          "replacements_files": [
+            "fileToReplaceValues.json"
+          ]
+        }
+      }
+    }
+  }
+}
+```
 
-\!\[feature X\]\(images/feature-x.png\)
+## Example Task options
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
-
-## Requirements
-
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
-
-## Extension Settings
-
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
-
-For example:
-
-This extension contributes the following settings:
-
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
-
-## Known Issues
-
-Calling out known issues can help limit users opening duplicate issues against your extension.
-
-## Release Notes
-
-Users appreciate release notes as you update your extension.
-
-### 1.0.0
-
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
-
----
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code.  Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux)
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux)
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+This should be setup in your `.vscode/task.json` file
+```json
+{
+  // See https://go.microsoft.com/fwlink/?LinkId=733558
+  // for the documentation about the tasks.json format
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "BuildWithRokuBuilder",
+      "type": "rokubuilder",
+      "brand": "${input:brand}",
+      "targetDir": "${workspaceFolder}/dist",
+      "problemMatcher": []
+    },
+  ],
+  "inputs": [
+    {
+      "id": "brand",
+      "type": "pickString",
+      "description": "Select the brand to use",
+      "options": [
+        "brand",
+        "brand-staging"
+      ]
+    }
+  ]
+}
+```
