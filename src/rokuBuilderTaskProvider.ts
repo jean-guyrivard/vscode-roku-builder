@@ -73,7 +73,7 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
 
   constructor(private taskScope: vscode.WorkspaceFolder, private requestedBrand: string | undefined, targetDir: string | undefined) {
     if (!targetDir) {
-      this.targetDir = taskScope.uri.fsPath
+      this.targetDir = path.join(taskScope.uri.fsPath, "dist")
     } else {
       this.targetDir = targetDir;
     }
