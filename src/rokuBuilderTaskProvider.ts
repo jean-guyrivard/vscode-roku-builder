@@ -113,6 +113,9 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
       if (this.requestedBrand) {
         console.log(`Brand ${this.requestedBrand} requested`);
         await this.buildBrand(this.requestedBrand, this.configData);
+
+        this.closeEmitter.fire(0);
+        resolve();
       } else {
         console.log("Brand missing, scanning config");
         const availableBrands: Array<string> = this.loadBrands(this.configData);
@@ -121,11 +124,11 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
           if (value) {
             this.buildBrand(value, this.configData);
           }
+
+          this.closeEmitter.fire(0);
+          resolve();
         })
       }
-
-      this.closeEmitter.fire(0);
-      resolve();
     })
   }
 

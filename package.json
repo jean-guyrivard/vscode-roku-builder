@@ -3,7 +3,11 @@
   "publisher": "redspace",
   "displayName": "Roku Builder",
   "description": "",
-  "version": "0.0.1",
+  "version": "0.1.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jean-guyrivard/vscode-roku-builder.git"
+  },
   "engines": {
     "vscode": "^1.77.0"
   },
