@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import * as glob from 'glob';
 import * as JSON5 from 'json5'
-import * as sharp from 'sharp';
+import sharp from 'sharp';
 import * as GIF from 'omggif';
 
 interface Dictionary<Type> {
