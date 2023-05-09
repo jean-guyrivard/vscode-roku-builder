@@ -413,6 +413,7 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
         const targetFilePath = path.join(this.targetDir, sourceFile.relativeFilePath);
         const targetFileInfo = path.parse(targetFilePath)
         const isAnimation = sourceFile.relativeFilePath.match(/^assets\/animations\/([a-z0-9\- ]+)/i)
+        const isImageFile = fileInfo.ext.match(/\.(jpg|jpeg|png|webp|gif)/i)
 
         if (isAnimation) {
           if (!finalConfig["!animations"]) {
@@ -424,6 +425,20 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
             }
           }
           finalConfig["!animations"][isAnimation[1]][targetFileInfo.name.replaceAll(" ", "-")] = await this.processSprite(sourceFile, targetFileInfo)
+        } else if (isImageFile) {
+          console.log("Image", this.configData?.options?.optimizeImages, targetFileInfo)
+          if ( (this.configData?.options?.optimizeImages) && (!targetFileInfo.base.endsWith(".9.png")) ) { // only optimize if enabled and not 9 patch
+            fs.mkdirSync(targetFileInfo.dir, {recursive: true});
+
+            const imageFile = await sharp(sourceFile.absoluteFilePath)
+              .webp({"lossless": true})
+              .toBuffer()
+
+            fs.writeFileSync(path.join(targetFileInfo.dir, targetFileInfo.name + ".webp"), imageFile)
+          } else {
+            fs.mkdirSync(targetFileInfo.dir, {recursive: true});
+            fs.copyFileSync(sourceFile.absoluteFilePath, targetFilePath)
+          }
         } else {
           fs.mkdirSync(targetFileInfo.dir, {recursive: true});
           fs.copyFileSync(sourceFile.absoluteFilePath, targetFilePath)
@@ -497,7 +512,7 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
       for (let frameNum=0;frameNum<image.numFrames();frameNum++) {
         const imageData = Buffer.alloc(image.width * image.height * 4)
         image.decodeAndBlitFrameRGBA(frameNum, imageData)
-        const newImageData = await sharp(imageData, {raw: {width: image.width, height: image.height, channels: 4}}).png().toBuffer()
+        const newImageData = await sharp(imageData, {raw: {width: image.width, height: image.height, channels: 4}}).webp({"lossless": true}).toBuffer()
 
         imageInfo.frames.push({
           "uri": newImageData.toString("base64")
