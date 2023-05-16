@@ -3,7 +3,7 @@
   "publisher": "Jean-GuyRivard",
   "displayName": "Roku Builder",
   "description": "Roku Builder is an extension used to package one or more channel with features such as text/file replacement for api keys, secrets or production/staging paths",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/jean-guyrivard/vscode-roku-builder.git"
@@ -36,13 +36,14 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run -S esbuild-base -- --minify ",
-    "esbuild-base": "rimraf out && esbuild ./src/extension.ts --bundle --loader:.node=file --outfile=out/extension.js --external:vscode --external:sharp --format=cjs --platform=node",
+    "esbuild-base": "rimraf out && esbuild ./src/extension.ts --bundle --loader:.node=file --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
     "build": "npm run -S esbuild-base -- --sourcemap",
     "watch": "npm run -S esbuild-base -- --sourcemap --watch",
     "fmt": "prettier --write \"src/**/*.ts\"&& npm run test -- --fix",
     "test": "eslint src --ext ts && tsc --noEmit"
   },
   "devDependencies": {
+    "@electron/rebuild": "^3.2.13",
     "@types/glob": "^8.1.0",
     "@types/mocha": "^10.0.1",
     "@types/node": "16.x",
