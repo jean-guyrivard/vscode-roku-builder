@@ -1,9 +1,9 @@
 {
   "name": "roku-builder",
-  "publisher": "redspace",
+  "publisher": "Jean-GuyRivard",
   "displayName": "Roku Builder",
-  "description": "",
-  "version": "0.1.0",
+  "description": "Roku Builder is an extension used to package one or more channel with features such as text/file replacement for api keys, secrets or production/staging paths",
+  "version": "0.2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/jean-guyrivard/vscode-roku-builder.git"
