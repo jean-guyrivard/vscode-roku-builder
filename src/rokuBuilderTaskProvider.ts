@@ -3,8 +3,8 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import * as glob from 'glob';
 import * as JSON5 from 'json5'
-import sharp from 'sharp';
-import * as GIF from 'omggif';
+import * as omggif from 'omggif';
+const gm = require('gm').subClass({ imageMagick: '7+' });
 
 interface Dictionary<Type> {
   [key: string]: Type;
@@ -430,11 +430,17 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
           if ( (this.configData?.options?.optimizeImages) && (!targetFileInfo.base.endsWith(".9.png")) ) { // only optimize if enabled and not 9 patch
             fs.mkdirSync(targetFileInfo.dir, {recursive: true});
 
-            const imageFile = await sharp(sourceFile.absoluteFilePath)
-              .webp({"lossless": true})
-              .toBuffer()
-
-            fs.writeFileSync(path.join(targetFileInfo.dir, targetFileInfo.name + ".webp"), imageFile)
+            const gmPromise = new Promise((resolve, reject) => {
+              const gmError = gm(sourceFile.absoluteFilePath).write(path.join(targetFileInfo.dir, targetFileInfo.name + ".webp"), (err: String) => {
+                if (err) {
+                  reject(err)
+                  console.log(gmError);
+                } else {
+                  resolve(0)
+                }
+              })
+            })
+            await gmPromise;
           } else {
             fs.mkdirSync(targetFileInfo.dir, {recursive: true});
             fs.copyFileSync(sourceFile.absoluteFilePath, targetFilePath)
@@ -502,7 +508,7 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
 
   private async processSprite(sourceFile: rokuBuilderFileInfo, targetFileInfo: path.ParsedPath): Promise<Dictionary<any> | undefined> {
     if (targetFileInfo.ext == ".gif") {
-      const image = await new GIF.GifReader(fs.readFileSync(sourceFile.absoluteFilePath))
+      const image = await new omggif.GifReader(fs.readFileSync(sourceFile.absoluteFilePath))
       let imageInfo = {
           "subtype": "Node",
           "numberOfFrames": image.numFrames(),
@@ -512,10 +518,21 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
       for (let frameNum=0;frameNum<image.numFrames();frameNum++) {
         const imageData = Buffer.alloc(image.width * image.height * 4)
         image.decodeAndBlitFrameRGBA(frameNum, imageData)
-        const newImageData = await sharp(imageData, {raw: {width: image.width, height: image.height, channels: 4}}).webp({"lossless": true}).toBuffer()
+
+        const gmPromise = new Promise((resolve, reject) => {
+          const gmError = gm(imageData).toBuffer('WEBP', (err: String, buffer: Buffer) => {
+            if (err) {
+              reject(err)
+              console.log(gmError);
+            } else {
+              resolve(buffer)
+            }
+          })
+        })
+        const webpData = <Buffer>await gmPromise;
 
         imageInfo.frames.push({
-          "uri": newImageData.toString("base64")
+          "uri": webpData.toString("base64")
         })
       }
 
