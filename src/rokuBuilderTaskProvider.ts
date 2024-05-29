@@ -526,7 +526,7 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
           image.decodeAndBlitFrameRGBA(frameNum, imageData)
 
           const gmPromise = new Promise((resolve, reject) => {
-            const test = gm(imageData, 'unknown.rgba').toBuffer('gif', (err: String, buffer: Buffer) => {
+            const test = gm(sourceFile.absoluteFilePath+"["+frameNum+"]").toBuffer('webp', (err: String, buffer: Buffer) => {
               if (err) {
                 reject(err)
                 outputChannel.appendLine(err.toString())
