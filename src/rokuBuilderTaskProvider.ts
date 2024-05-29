@@ -4,8 +4,9 @@ import * as vscode from 'vscode';
 import * as glob from 'glob';
 import * as JSON5 from 'json5'
 import * as omggif from 'omggif';
-import sharp from 'sharp';
+
 const gm = require('gm').subClass({ imageMagick: '7+' });
+
 const outputChannel = vscode.window.createOutputChannel("Roku Builder Log");
 
 interface Dictionary<Type> {
@@ -512,25 +513,41 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
 
   private async processSprite(sourceFile: rokuBuilderFileInfo, targetFileInfo: path.ParsedPath): Promise<Dictionary<any> | undefined> {
     if (targetFileInfo.ext == ".gif") {
-      const image = await new omggif.GifReader(fs.readFileSync(sourceFile.absoluteFilePath))
-      let imageInfo = {
-          "subtype": "Node",
-          "numberOfFrames": image.numFrames(),
-          "frames": [] as Array<any>
+      try {
+        const image = await new omggif.GifReader(fs.readFileSync(sourceFile.absoluteFilePath))
+        let imageInfo = {
+            "subtype": "Node",
+            "numberOfFrames": image.numFrames(),
+            "frames": [] as Array<any>
+        }
+
+        for (let frameNum=0;frameNum<image.numFrames();frameNum++) {
+          const imageData = Buffer.alloc(image.width * image.height * 4)
+          image.decodeAndBlitFrameRGBA(frameNum, imageData)
+
+          const gmPromise = new Promise((resolve, reject) => {
+            const test = gm(imageData, 'unknown.rgba').toBuffer('gif', (err: String, buffer: Buffer) => {
+              if (err) {
+                reject(err)
+                outputChannel.appendLine(err.toString())
+              } else {
+                resolve(buffer)
+              }
+            })
+            console.log(test);
+          })
+          const webpData = <Buffer>await gmPromise;
+
+          imageInfo.frames.push({
+            "uri": webpData.toString("base64")
+          })
+        }
+
+        return Promise.resolve(imageInfo)
+      } catch(e) {
+        outputChannel.appendLine(e.toString())
+        return Promise.resolve(undefined);
       }
-
-      for (let frameNum=0;frameNum<image.numFrames();frameNum++) {
-        const imageData = new Uint8ClampedArray(image.width * image.height * 4)
-        image.decodeAndBlitFrameRGBA(frameNum, imageData)
-
-        const webpData = <Buffer>await sharp(imageData, {raw: {width: image.width, height: image.height, channels: 4}}).webp().toBuffer();
-
-        imageInfo.frames.push({
-          "uri": webpData.toString("base64")
-        })
-      }
-
-      return Promise.resolve(imageInfo)
     } else {
       return Promise.resolve(undefined)
     }
