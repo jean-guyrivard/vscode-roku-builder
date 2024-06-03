@@ -4,7 +4,10 @@ import * as vscode from 'vscode';
 import * as glob from 'glob';
 import * as JSON5 from 'json5'
 import * as omggif from 'omggif';
+
 const gm = require('gm').subClass({ imageMagick: '7+' });
+
+const outputChannel = vscode.window.createOutputChannel("Roku Builder Log");
 
 interface Dictionary<Type> {
   [key: string]: Type;
@@ -12,16 +15,14 @@ interface Dictionary<Type> {
 
 export class rokuBuilderTaskProvider implements vscode.TaskProvider {
   static buildScriptType = 'rokubuilder';
-  private outputChannel: vscode.OutputChannel;
 
   constructor() {
-    this.outputChannel = vscode.window.createOutputChannel("Roku Builder Log");
   }
 
   public async provideTasks(): Promise<vscode.Task[]> {
     let tasks: vscode.Task[] | undefined;
 
-    console.log("Provide Tasks");
+    outputChannel.appendLine("Provide Tasks");
 
     tasks = []
 
@@ -29,7 +30,7 @@ export class rokuBuilderTaskProvider implements vscode.TaskProvider {
 	}
 
   public resolveTask(_task: vscode.Task): vscode.Task | undefined {
-    console.log("Resolve Task", _task.definition)
+    outputChannel.appendLine("Resolve Task")
     if (_task) {
 		  return this.getTask(_task)
     } else {
@@ -44,7 +45,7 @@ export class rokuBuilderTaskProvider implements vscode.TaskProvider {
     const scope: vscode.WorkspaceFolder = <vscode.WorkspaceFolder>_task?.scope
 
     return new vscode.Task(_task.definition, scope, "Roku Builder", rokuBuilderTaskProvider.buildScriptType, new vscode.CustomExecution(async (resolveDefinition: vscode.TaskDefinition): Promise<vscode.Pseudoterminal> => {
-      console.log(resolveDefinition);
+      outputChannel.appendLine(JSON.stringify(resolveDefinition));
       const definition : rokuBuilderTaskDefinition = resolveDefinition;
 
       // When the task is executed, this callback will run. Here, we setup for running the task.
@@ -97,27 +98,27 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
       let availableBrands: Array<string> = []
 
       if (!fs.existsSync(config)) {
-        console.log("Roku Builder not found for", folder);
+        outputChannel.appendLine(JSON.stringify(["Roku Builder not found for", folder]));
         return;
       }
 
       this.configData = JSON5.parse(fs.readFileSync(config).toString());
 
       if (!this.configData) {
-        console.log("Roku Builder config is invalid", folder);
+        outputChannel.appendLine(JSON.stringify(["Roku Builder config is invalid", folder]));
         return;
       }
 
-      console.log("Config loaded", folder, this.configData);
+      outputChannel.appendLine(JSON.stringify(["Config loaded", folder, this.configData]));
 
       if (this.requestedBrand) {
-        console.log(`Brand ${this.requestedBrand} requested`);
+        outputChannel.appendLine(`Brand ${this.requestedBrand} requested`);
         await this.buildBrand(this.requestedBrand, this.configData);
 
         this.closeEmitter.fire(0);
         resolve();
       } else {
-        console.log("Brand missing, scanning config");
+        outputChannel.appendLine("Brand missing, scanning config");
         const availableBrands: Array<string> = this.loadBrands(this.configData);
 
         vscode.window.showQuickPick(availableBrands).then((value: string | undefined) => {
@@ -163,7 +164,7 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
 
             Object.entries(subBrands).forEach(([key, value]) => {
               let brand = key.replace(variableRegEx, (match, g1) => {
-                console.log("match", g1, variables[g1]);
+                outputChannel.appendLine(JSON.stringify(["match", g1, variables[g1]]));
                 return variables[g1]
               })
 
@@ -171,14 +172,14 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
             })
           })
         } catch(e) {
-          console.log(e)
+          outputChannel.appendLine(e.toString())
         }
       } else {
-        console.log("Repeat not found")
+        outputChannel.appendLine("Repeat not found")
       }
     }
 
-    console.log(availableBrands);
+    outputChannel.appendLine(JSON.stringify(availableBrands));
 
     return availableBrands;
   }
@@ -188,7 +189,7 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
 
     if (configData.brands) {
       if (configData.brands[requestedBrand]) {
-        console.log("Brand found directly, processing")
+        outputChannel.appendLine("Brand found directly, processing")
       } else {
         let targets = configData.targets;
         Object.entries(configData.brands).forEach(([key, value]) => {
@@ -266,15 +267,15 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
               await this.finalizeBuild(finalConfig);
 
 
-              console.log(finalConfig);
+              outputChannel.appendLine("Config completed");
             } else {
-              console.log(`Requested brand ${requestedBrand} not found`);
+              outputChannel.appendLine(`Requested brand ${requestedBrand} not found`);
             }
           } catch (e) {
-            console.log(e)
+            outputChannel.appendLine(JSON.stringify(["Error", e.toString()]))
           }
         } else {
-          console.log("Repeat not found")
+          outputChannel.appendLine("Repeat not found")
         }
       }
     }
@@ -283,7 +284,7 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
   private processBrand(currentBrand: Dictionary<any>, brandConfigs: Dictionary<any>): Dictionary<any> {
     let currentConfig: Dictionary<any> = {};
 
-    console.log("processBrand", currentBrand)
+    outputChannel.appendLine(JSON.stringify(["processBrand", currentBrand]))
 
     if (currentBrand.parents) {
       currentBrand.parents.forEach((parentBrand: string) => {
@@ -369,7 +370,7 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
       });
     }
 
-    console.log(currentConfig);
+    outputChannel.appendLine("Process Brand completed");
 
     return currentConfig;
   }
@@ -384,7 +385,11 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
           let replacementAdd = JSON5.parse(fs.readFileSync(filepath).toString());
 
           Object.entries(replacementAdd).forEach(([key, value]) => {
-            replacements[key] = value
+            if (typeof value != "string") {
+              replacements[key] = value
+            } else {
+              replacements[key] = JSON.stringify(value)
+            }
           })
         }
       })
@@ -397,8 +402,10 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
 
     for (const sourceFile of finalConfig["!files"]) {
       const fileInfo = path.parse(sourceFile.absoluteFilePath);
-      const isTextFile = fileInfo.ext.match(/\.(brs|json|xml|txt)/i)
-      const isBannedFile = fileInfo.ext.match(/\.(zip)/i)
+      const isTextFile = fileInfo.ext.match(/\.(brs|json|xml|txt)/i) != null
+      const isBannedFile = fileInfo.ext.match(/\.(zip)/i) != null
+
+      outputChannel.appendLine(`Parsing File ${fileInfo.name} ${isTextFile} ${isBannedFile}`)
 
       if (isTextFile) {
         let content = fs.readFileSync(sourceFile.absoluteFilePath, {encoding: "utf-8"});
@@ -413,7 +420,9 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
         const targetFilePath = path.join(this.targetDir, sourceFile.relativeFilePath);
         const targetFileInfo = path.parse(targetFilePath)
         const isAnimation = sourceFile.relativeFilePath.match(/^assets\/animations\/([a-z0-9\- ]+)/i)
-        const isImageFile = fileInfo.ext.match(/\.(jpg|jpeg|png|webp|gif)/i)
+        const isImageFile = fileInfo.ext.match(/\.(jpg|jpeg|png|webp|gif)/i) != null
+
+        outputChannel.appendLine(`Processing File ${isAnimation} ${isImageFile}`)
 
         if (isAnimation) {
           if (!finalConfig["!animations"]) {
@@ -426,7 +435,7 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
           }
           finalConfig["!animations"][isAnimation[1]][targetFileInfo.name.replaceAll(" ", "-")] = await this.processSprite(sourceFile, targetFileInfo)
         } else if (isImageFile) {
-          console.log("Image", this.configData?.options?.optimizeImages, targetFileInfo)
+          outputChannel.appendLine(JSON.stringify(["Image", this.configData?.options?.optimizeImages, targetFileInfo]))
           if ( (this.configData?.options?.optimizeImages) && (!targetFileInfo.base.endsWith(".9.png")) ) { // only optimize if enabled and not 9 patch
             fs.mkdirSync(targetFileInfo.dir, {recursive: true});
 
@@ -434,7 +443,7 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
               const gmError = gm(sourceFile.absoluteFilePath).write(path.join(targetFileInfo.dir, targetFileInfo.name + ".webp"), (err: String) => {
                 if (err) {
                   reject(err)
-                  console.log(gmError);
+                  outputChannel.appendLine(gmError);
                 } else {
                   resolve(0)
                 }
@@ -508,35 +517,41 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
 
   private async processSprite(sourceFile: rokuBuilderFileInfo, targetFileInfo: path.ParsedPath): Promise<Dictionary<any> | undefined> {
     if (targetFileInfo.ext == ".gif") {
-      const image = await new omggif.GifReader(fs.readFileSync(sourceFile.absoluteFilePath))
-      let imageInfo = {
-          "subtype": "Node",
-          "numberOfFrames": image.numFrames(),
-          "frames": [] as Array<any>
-      }
+      try {
+        const image = await new omggif.GifReader(fs.readFileSync(sourceFile.absoluteFilePath))
+        let imageInfo = {
+            "subtype": "Node",
+            "numberOfFrames": image.numFrames(),
+            "frames": [] as Array<any>
+        }
 
-      for (let frameNum=0;frameNum<image.numFrames();frameNum++) {
-        const imageData = Buffer.alloc(image.width * image.height * 4)
-        image.decodeAndBlitFrameRGBA(frameNum, imageData)
+        for (let frameNum=0;frameNum<image.numFrames();frameNum++) {
+          const imageData = Buffer.alloc(image.width * image.height * 4)
+          image.decodeAndBlitFrameRGBA(frameNum, imageData)
 
-        const gmPromise = new Promise((resolve, reject) => {
-          const gmError = gm(imageData).toBuffer('WEBP', (err: String, buffer: Buffer) => {
-            if (err) {
-              reject(err)
-              console.log(gmError);
-            } else {
-              resolve(buffer)
-            }
+          const gmPromise = new Promise((resolve, reject) => {
+            const test = gm(sourceFile.absoluteFilePath+"["+frameNum+"]").toBuffer('webp', (err: String, buffer: Buffer) => {
+              if (err) {
+                reject(err)
+                outputChannel.appendLine(err.toString())
+              } else {
+                resolve(buffer)
+              }
+            })
+            console.log(test);
           })
-        })
-        const webpData = <Buffer>await gmPromise;
+          const webpData = <Buffer>await gmPromise;
 
-        imageInfo.frames.push({
-          "uri": webpData.toString("base64")
-        })
+          imageInfo.frames.push({
+            "uri": webpData.toString("base64")
+          })
+        }
+
+        return Promise.resolve(imageInfo)
+      } catch(e) {
+        outputChannel.appendLine(e.toString())
+        return Promise.resolve(undefined);
       }
-
-      return Promise.resolve(imageInfo)
     } else {
       return Promise.resolve(undefined)
     }
