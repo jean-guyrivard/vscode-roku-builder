@@ -385,11 +385,7 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
           let replacementAdd = JSON5.parse(fs.readFileSync(filepath).toString());
 
           Object.entries(replacementAdd).forEach(([key, value]) => {
-            if (typeof value != "string") {
-              replacements[key] = value
-            } else {
-              replacements[key] = JSON.stringify(value)
-            }
+            replacements[key] = value
           })
         }
       })
@@ -649,14 +645,20 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
   }
 
   private replaceBulk( str: string, findArray: string[], replaceArray: string[] ){
+    outputChannel.appendLine("Replace Bulk")
     var i, regex: string[] = [], map: Dictionary<any> = {}; 
     for( i=0; i<findArray.length; i++ ){ 
       regex.push( findArray[i].replace(/([-[\]{}()*+?.\\^$|#,])/g,'\\$1') );
       map[findArray[i]] = replaceArray[i]; 
+      console.log(replaceArray[i])
     }
     let regexStr = regex.join('|');
     str = str.replace( new RegExp( regexStr, 'g' ), function(matched){
-      return map[matched];
+      if (typeof map[matched] == "string") {
+        return map[matched];
+      } else {
+        return JSON5.stringify(map[matched], {quote: "\""});
+      }
     });
     return str;
   }
