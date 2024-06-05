@@ -385,7 +385,7 @@ class CustomBuildTaskTerminal implements vscode.Pseudoterminal {
           let replacementAdd = JSON5.parse(fs.readFileSync(filepath).toString());
 
           Object.entries(replacementAdd).forEach(([key, value]) => {
-            if (typeof value != "string") {
+            if (typeof value == "string") {
               replacements[key] = value
             } else {
               replacements[key] = JSON.stringify(value)
