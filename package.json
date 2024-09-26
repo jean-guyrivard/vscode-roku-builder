@@ -3,7 +3,7 @@
   "publisher": "Jean-GuyRivard",
   "displayName": "Roku Builder",
   "description": "Roku Builder is an extension used to package one or more channel with features such as text/file replacement for api keys, secrets or production/staging paths",
-  "version": "0.4.10",
+  "version": "0.4.11",
   "repository": {
     "type": "git",
     "url": "https://github.com/jean-guyrivard/vscode-roku-builder.git"
